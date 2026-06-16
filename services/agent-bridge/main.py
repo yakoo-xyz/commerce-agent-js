@@ -1,9 +1,9 @@
 """
-FastAPI bridge that wraps the Python commerce agent (aagent.py).
+FastAPI bridge that wraps an external Python commerce agent.
 
-Run from the Subnet15 repo root:
-  pip install -r commerce-agent-js/services/agent-bridge/requirements.txt
-  uvicorn commerce-agent-js.services.agent-bridge.main:app --reload --port 8000
+Run:
+  pip install -r services/agent-bridge/requirements.txt
+  uvicorn services.agent-bridge.main:app --reload --port 8000
 
 Then point the Node server at it:
   AGENT_BACKEND_URL=http://localhost:8000 npm run dev -w express-server-example
@@ -11,6 +11,7 @@ Then point the Node server at it:
 from __future__ import annotations
 
 import importlib.util
+import os
 import sys
 from pathlib import Path
 from typing import Any
@@ -19,9 +20,8 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
-# Resolve aagent.py at repo root (Subnet15/aagent.py)
 REPO_ROOT = Path(__file__).resolve().parents[3]
-AGENT_PATH = REPO_ROOT / "aagent.py"
+AGENT_PATH = Path(os.environ.get("AGENT_PATH", REPO_ROOT / "agent.py"))
 
 _agent_main = None
 
@@ -33,21 +33,21 @@ def _load_agent():
 
     if not AGENT_PATH.is_file():
         raise RuntimeError(
-            f"aagent.py not found at {AGENT_PATH}. "
-            "Place the bridge inside the Subnet15 repo or set AGENT_PATH."
+            f"Agent file not found at {AGENT_PATH}. "
+            "Set AGENT_PATH to your Python agent entry point."
         )
 
-    spec = importlib.util.spec_from_file_location("aagent", AGENT_PATH)
+    spec = importlib.util.spec_from_file_location("commerce_agent", AGENT_PATH)
     if spec is None or spec.loader is None:
         raise RuntimeError(f"Cannot load agent module from {AGENT_PATH}")
 
     module = importlib.util.module_from_spec(spec)
-    sys.modules["aagent"] = module
+    sys.modules["commerce_agent"] = module
     spec.loader.exec_module(module)
 
     fn = getattr(module, "agent_main", None)
     if fn is None:
-        raise RuntimeError("aagent.py must export agent_main(problem_data)")
+        raise RuntimeError("Agent file must export agent_main(problem_data)")
 
     _agent_main = fn
     return _agent_main

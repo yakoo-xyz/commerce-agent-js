@@ -19,21 +19,23 @@ npm run build
 npm run dev
 ```
 
-Open **http://localhost:3000** — click the cart button to chat with the mock agent.
+Open **http://localhost:3000** — click the cart button to chat with the built-in agent.
 
-## Connect your Python agent
+## Connect a Python agent backend
 
-The bridge wraps `aagent.py` from the repo root:
+Use the FastAPI bridge to proxy requests to your own Python agent:
 
 ```bash
-# Terminal 1 — Python bridge (requires src.agent deps from your subnet env)
+# Terminal 1 — Python bridge
 pip install -r services/agent-bridge/requirements.txt
 cd services/agent-bridge && uvicorn main:app --reload --port 8000
 
-# Terminal 2 — Node demo with real agent
+# Terminal 2 — Node demo with external agent
 set AGENT_BACKEND_URL=http://localhost:8000
 npm run dev
 ```
+
+Set `AGENT_PATH` to point at your Python agent file (must export `agent_main`).
 
 ## Use in your project
 
@@ -112,15 +114,17 @@ commerce-agent-js/
 ├── examples/
 │   └── express-server/
 └── services/
-    └── agent-bridge/  # FastAPI → aagent.py
+    └── agent-bridge/  # FastAPI → Python agent
 ```
 
 ## Environment variables
 
 | Variable | Description |
 |----------|-------------|
-| `AGENT_BACKEND_URL` | Python bridge URL (e.g. `http://localhost:8000`) |
+| `AGENT_BACKEND_URL` | Python agent bridge URL (e.g. `http://localhost:8000`) |
 | `AGENT_API_KEY` | Optional bearer token for the backend |
+| `PRODUCT_API_URL` | Product catalog API base URL (server-side search) |
+| `PRODUCT_API_KEY` | Optional bearer token for the product catalog API |
 | `PORT` | Demo server port (default `3000`) |
 
 ## License

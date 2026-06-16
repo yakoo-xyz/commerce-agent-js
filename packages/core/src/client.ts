@@ -1,4 +1,5 @@
 import { runMockAgent } from "./mock-agent.js";
+import { runCommerceAgent, CatalogApiClient } from "./agent/agent-runner.js";
 import type {
   AgentBackendRequest,
   AgentBackendResponse,
@@ -124,7 +125,7 @@ function normalizeResponse(
   };
 }
 
-/** HTTP + mock client used internally by CommerceAgent. */
+/** HTTP + mock + local agent client used internally by CommerceAgent. */
 export class AgentClient {
   private readonly config: CommerceAgentConfig;
 
@@ -137,16 +138,34 @@ export class AgentClient {
   }
 
   get usesMock(): boolean {
-    return Boolean(this.config.useMock || !this.config.agentBackendUrl);
+    return Boolean(
+      (this.config.useMock || !this.config.agentBackendUrl) &&
+        !this.config.useLocalAgent &&
+        !this.config.productApi,
+    );
+  }
+
+  get usesLocalAgent(): boolean {
+    return Boolean(this.config.useLocalAgent || this.config.productApi);
   }
 
   async query(message: string, options: QueryOptions = {}): Promise<AgentResult> {
-    const { sessionId, onStep } = options;
+    const { sessionId, onStep, productApiPort } = options;
 
     let backend: AgentBackendResponse;
 
     if (this.usesMock) {
       backend = await runMockAgent(message, onStep);
+    } else if (this.usesLocalAgent || productApiPort) {
+      const api =
+        productApiPort ??
+        new CatalogApiClient(this.config.productApi!);
+      const result = await runCommerceAgent(message, api, { onStep });
+      backend = {
+        steps: result.steps,
+        status: result.status,
+        product_ids: result.product_ids,
+      };
     } else {
       backend = await callBackend(
         this.config,

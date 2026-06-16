@@ -51,6 +51,13 @@ export interface SessionMessage {
   result?: AgentResult;
 }
 
+/** Product catalog API configuration for search tools. */
+export interface ProductApiConfig {
+  baseUrl: string;
+  apiKey?: string;
+  minIntervalMs?: number;
+}
+
 /** Configuration for CommerceAgent. */
 export interface CommerceAgentConfig {
   /** Base URL of the agent backend (Python bridge or hosted API). */
@@ -61,6 +68,19 @@ export interface CommerceAgentConfig {
   timeoutMs?: number;
   /** Use built-in mock agent when no backend URL is set. Default true. */
   useMock?: boolean;
+  /**
+   * Run the built-in commerce agent instead of mock/Python bridge.
+   * Requires `productApi` when not delegating to the client.
+   */
+  useLocalAgent?: boolean;
+  /** Server-side product catalog API base URL for find_product / view_product_information. */
+  productApi?: ProductApiConfig;
+}
+
+/** Injectable product API for delegated (client-side) tool execution. */
+export interface ProductApiPort {
+  findProduct(params: import("./agent/product-api.js").FindProductParams): Promise<Product[]>;
+  viewProductInformation(productIds: string): Promise<Product[]>;
 }
 
 /** Options passed to query(). */
@@ -68,6 +88,10 @@ export interface QueryOptions {
   sessionId?: string;
   /** Stream step events via callback instead of waiting for full result. */
   onStep?: (step: DialogueStep, index: number) => void;
+  /** Override product API (e.g. browser-delegated catalog API client). */
+  productApiPort?: ProductApiPort;
+  /** Called when the agent needs the client to execute a product API tool. */
+  onToolRequest?: (request: import("./agent/product-api.js").PendingToolRequest) => void;
 }
 
 /** Backend request body sent to the Python agent bridge. */

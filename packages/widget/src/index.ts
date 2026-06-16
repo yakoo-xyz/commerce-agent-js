@@ -4,9 +4,11 @@ import type {
   WidgetConfig,
   WidgetInstance,
   WidgetProduct,
+  WidgetProductApiConfig,
 } from "./types.js";
 
 const STYLE_ID = "commerce-agent-widget-styles";
+const STORAGE_KEY = "commerce-agent-product-api";
 
 function injectStyles(config: WidgetConfig): void {
   if (document.getElementById(STYLE_ID)) return;
@@ -16,10 +18,32 @@ function injectStyles(config: WidgetConfig): void {
   document.head.appendChild(style);
 }
 
+function loadStoredProductApi(): WidgetProductApiConfig | undefined {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return undefined;
+    const parsed = JSON.parse(raw) as WidgetProductApiConfig;
+    return parsed.baseUrl ? parsed : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function saveProductApi(config: WidgetProductApiConfig): void {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(config));
+}
+
 function createWidget(config: WidgetConfig): WidgetInstance {
   injectStyles(config);
 
-  const api = new WidgetApiClient(config.apiUrl.replace(/\/$/, ""));
+  let productApi = config.productApi ?? loadStoredProductApi();
+  const delegateProductApi = config.delegateProductApi !== false;
+
+  const api = new WidgetApiClient(config.apiUrl.replace(/\/$/, ""), {
+    productApi,
+    delegateProductApi,
+  });
+
   const title = config.title ?? "Shopping Assistant";
   const greeting = config.greeting ?? "Hi! Tell me what you're looking for and I'll find the best products.";
   const placeholder = config.placeholder ?? "e.g. wireless earbuds under 2000 pesos";
@@ -63,11 +87,73 @@ function createWidget(config: WidgetConfig): WidgetInstance {
   sendBtn.textContent = "Send";
 
   inputRow.append(input, sendBtn);
+
+  let settingsEl: HTMLElement | null = null;
+  if (config.showProductApiSettings) {
+    settingsEl = document.createElement("div");
+    settingsEl.className = "ca-settings";
+
+    const toggle = document.createElement("button");
+    toggle.type = "button";
+    toggle.className = "ca-settings-toggle";
+    toggle.textContent = "⚙ Product API settings";
+
+    const form = document.createElement("div");
+    form.hidden = true;
+
+    const baseLabel = document.createElement("label");
+    baseLabel.textContent = "OpenAPI base URL";
+    const baseInput = document.createElement("input");
+    baseInput.type = "url";
+    baseInput.placeholder = "https://your-api.example.com";
+    baseInput.value = productApi?.baseUrl ?? "";
+
+    const keyLabel = document.createElement("label");
+    keyLabel.textContent = "API key (optional)";
+    const keyInput = document.createElement("input");
+    keyInput.type = "password";
+    keyInput.placeholder = "Bearer token";
+    keyInput.value = productApi?.apiKey ?? "";
+
+    const saveBtn = document.createElement("button");
+    saveBtn.type = "button";
+    saveBtn.className = "ca-send";
+    saveBtn.textContent = "Save";
+    saveBtn.style.marginTop = "4px";
+
+    toggle.addEventListener("click", () => {
+      form.hidden = !form.hidden;
+    });
+
+    saveBtn.addEventListener("click", () => {
+      const next: WidgetProductApiConfig = {
+        baseUrl: baseInput.value.trim(),
+        apiKey: keyInput.value.trim() || undefined,
+      };
+      if (!next.baseUrl) return;
+      productApi = next;
+      saveProductApi(next);
+      api.updateProductApi(next);
+      appendMessage(messages, { role: "system", content: "Product API saved." });
+    });
+
+    form.append(baseLabel, baseInput, keyLabel, keyInput, saveBtn);
+    settingsEl.append(toggle, form);
+  }
+
   panel.append(header, messages, inputRow);
+  if (settingsEl) panel.append(settingsEl);
   root.append(launcher, panel);
   document.body.appendChild(root);
 
-  appendMessage(messages, { role: "system", content: greeting });
+  appendMessage(messages, {
+    role: "system",
+    content: delegateProductApi
+      ? productApi
+        ? greeting
+        : `${greeting} Configure your product catalog API URL in settings to search real products.`
+      : greeting,
+  });
 
   let open = false;
   let busy = false;
@@ -81,6 +167,14 @@ function createWidget(config: WidgetConfig): WidgetInstance {
   async function submit(): Promise<void> {
     const text = input.value.trim();
     if (!text || busy) return;
+
+    if (delegateProductApi && !productApi?.baseUrl) {
+      appendMessage(messages, {
+        role: "assistant",
+        content: "Please set your product catalog API base URL in settings first.",
+      });
+      return;
+    }
 
     busy = true;
     sendBtn.disabled = true;
@@ -183,4 +277,4 @@ if (typeof window !== "undefined") {
   window.CommerceAgentWidget = globalApi;
 }
 
-export type { WidgetConfig, WidgetInstance, WidgetProduct, CommerceAgentWidgetGlobal };
+export type { WidgetConfig, WidgetInstance, WidgetProduct, CommerceAgentWidgetGlobal, WidgetProductApiConfig };

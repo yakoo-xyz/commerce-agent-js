@@ -1,9 +1,86 @@
 import type { WidgetConfig, WidgetMessage, WidgetProduct } from "./types.js";
 
+export interface ProductApiSettings {
+  /** Product catalog API base URL, e.g. https://your-api.example.com */
+  baseUrl: string;
+  apiKey?: string;
+  minIntervalMs?: number;
+}
+
+export class CatalogApiClient {
+  private lastRequestAt = 0;
+  constructor(private readonly config: ProductApiSettings) {}
+
+  private async throttle(): Promise<void> {
+    const minInterval = this.config.minIntervalMs ?? 700;
+    const now = Date.now();
+    const wait = minInterval - (now - this.lastRequestAt);
+    if (wait > 0) await new Promise((r) => setTimeout(r, wait));
+    this.lastRequestAt = Date.now();
+  }
+
+  private headers(): Record<string, string> {
+    const h: Record<string, string> = { Accept: "application/json" };
+    if (this.config.apiKey) h.Authorization = `Bearer ${this.config.apiKey}`;
+    return h;
+  }
+
+  private async get<T>(path: string, params: Record<string, string | number>): Promise<T | null> {
+    await this.throttle();
+    const base = this.config.baseUrl.replace(/\/$/, "");
+    const qs = new URLSearchParams(Object.entries(params).map(([k, v]) => [k, String(v)])).toString();
+    const res = await fetch(`${base}${path}?${qs}`, { headers: this.headers() });
+    if (!res.ok) {
+      const text = await res.text().catch(() => "");
+      throw new Error(`Product API failed (${res.status}): ${text || res.statusText}`);
+    }
+    return (await res.json()) as T;
+  }
+
+  async executeTool(
+    name: "find_product" | "view_product_information",
+    params: Record<string, unknown>,
+  ): Promise<WidgetProduct[]> {
+    if (name === "find_product") {
+      const q = String(params.q ?? "");
+      const searchParams: Record<string, string | number> = {
+        q: encodeURIComponent(q).replace(/%20/g, "+"),
+        page: Number(params.page ?? 1),
+      };
+      if (params.shop_id) searchParams.shop_id = String(params.shop_id);
+      if (params.price) searchParams.price = String(params.price);
+      if (params.sort && params.sort !== "default") searchParams.sort = String(params.sort);
+      if (params.service) searchParams.service = String(params.service);
+
+      let result = (await this.get<WidgetProduct[]>("/search/find_product", searchParams)) ?? [];
+      if (!result.length && searchParams.service) {
+        const retry = { ...searchParams };
+        delete retry.service;
+        result = (await this.get<WidgetProduct[]>("/search/find_product", retry)) ?? [];
+      }
+      return result;
+    }
+
+    const ids = String(params.product_ids ?? "");
+    if (!ids) return [];
+    return (await this.get<WidgetProduct[]>("/search/view_product_information", { product_ids: ids })) ?? [];
+  }
+}
+
 export class WidgetApiClient {
   private sessionId: string | null = null;
 
-  constructor(private readonly apiUrl: string) {}
+  constructor(
+    private readonly apiUrl: string,
+    private options: {
+      productApi?: ProductApiSettings;
+      delegateProductApi?: boolean;
+    } = {},
+  ) {}
+
+  updateProductApi(productApi: ProductApiSettings): void {
+    this.options.productApi = productApi;
+  }
 
   async ensureSession(): Promise<string> {
     if (this.sessionId) return this.sessionId;
@@ -15,16 +92,35 @@ export class WidgetApiClient {
     return this.sessionId;
   }
 
+  private async submitToolResult(requestId: string, result: unknown, error?: string): Promise<void> {
+    const sessionId = await this.ensureSession();
+    const res = await fetch(`${this.apiUrl}/sessions/${sessionId}/tool-results`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ requestId, result, error }),
+    });
+    if (!res.ok) {
+      const text = await res.text().catch(() => "");
+      throw new Error(text || `Tool result failed (${res.status})`);
+    }
+  }
+
   async sendMessage(message: string): Promise<{
     steps: Array<{ think: string; tool_calls: Array<{ name: string; result?: unknown }> }>;
     products: WidgetProduct[];
     status: string;
   }> {
     const sessionId = await this.ensureSession();
+    const body: Record<string, unknown> = { message };
+    if (this.options.delegateProductApi) body.delegateProductApi = true;
+    if (this.options.productApi && !this.options.delegateProductApi) {
+      body.productApi = this.options.productApi;
+    }
+
     const res = await fetch(`${this.apiUrl}/sessions/${sessionId}/messages`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ message }),
+      body: JSON.stringify(body),
     });
     if (!res.ok) {
       const err = await res.text();
@@ -41,9 +137,41 @@ export class WidgetApiClient {
       onError?: (err: Error) => void;
     },
   ): void {
-    void this.ensureSession().then((sessionId) => {
-      const url = `${this.apiUrl}/sessions/${sessionId}/stream?message=${encodeURIComponent(message)}`;
+    void this.ensureSession().then(async (sessionId) => {
+      const productApiClient = this.options.productApi
+        ? new CatalogApiClient(this.options.productApi)
+        : null;
+
+      const params = new URLSearchParams({ message });
+      if (this.options.delegateProductApi) params.set("delegateProductApi", "true");
+
+      const url = `${this.apiUrl}/sessions/${sessionId}/stream?${params.toString()}`;
       const es = new EventSource(url);
+
+      es.addEventListener("tool_request", (ev) => {
+        void (async () => {
+          try {
+            const request = JSON.parse((ev as MessageEvent).data) as {
+              id: string;
+              name: "find_product" | "view_product_information";
+              params: Record<string, unknown>;
+            };
+            if (!productApiClient) {
+              await this.submitToolResult(request.id, null, "productApi is not configured on the widget");
+              return;
+            }
+            const result = await productApiClient.executeTool(request.name, request.params);
+            await this.submitToolResult(request.id, result);
+          } catch (e) {
+            const request = JSON.parse((ev as MessageEvent).data) as { id: string };
+            await this.submitToolResult(
+              request.id,
+              null,
+              e instanceof Error ? e.message : String(e),
+            ).catch(() => undefined);
+          }
+        })();
+      });
 
       es.addEventListener("step", (ev) => {
         try {
@@ -133,6 +261,10 @@ export function defaultStyles(config: WidgetConfig): string {
     .ca-input:focus { border-color: var(--ca-primary); }
     .ca-send { background: var(--ca-primary); color: #fff; border: none; border-radius: 8px; padding: 0 16px; cursor: pointer; font-weight: 600; font-size: 14px; }
     .ca-send:disabled { opacity: .5; cursor: not-allowed; }
+    .ca-settings { padding: 10px 12px; border-top: 1px solid #e2e8f0; background: #f8fafc; display: flex; flex-direction: column; gap: 6px; }
+    .ca-settings label { font-size: 11px; font-weight: 600; color: #64748b; text-transform: uppercase; letter-spacing: .04em; }
+    .ca-settings input { border: 1px solid #cbd5e1; border-radius: 6px; padding: 6px 8px; font-size: 12px; font-family: inherit; }
+    .ca-settings-toggle { background: none; border: none; color: var(--ca-primary); font-size: 12px; cursor: pointer; text-align: left; padding: 0; }
   `;
 }
 
