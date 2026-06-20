@@ -1,6 +1,8 @@
 # commerce-agent-js
 
-AI commerce agent as an npm monorepo: **SDK**, **Express server**, and **embeddable chat widget**.
+Embeddable **AI commerce agent** for marketplaces — SDK, server, and customizable chat widget.
+
+**Your marketplace** provides `searchProducts(query)`. **Commerce Agent** handles user intent analysis, product scoring, personalization, and recommendation generation.
 
 ## Packages
 
@@ -21,23 +23,38 @@ npm run dev
 
 Open **http://localhost:3000** — click the cart button to chat with the built-in agent.
 
-## Amazon product search (LLM → search)
+## Connect your marketplace catalog
+
+Point `PRODUCT_API_URL` at your search API (must expose `/search/find_product` and `/search/view_product_information`). See [website docs](../website/src/app/docs/page.tsx) for the full integration guide.
+
+```typescript
+createCommerceAgentRouter({
+  agentConfig: {
+    useLocalAgent: true,
+    productApi: { baseUrl: process.env.PRODUCT_API_URL },
+    llm: { baseUrl: process.env.LLM_BASE_URL, apiKey: process.env.LLM_API_KEY },
+  },
+}).mount(app);
+```
+
+## Demo catalog (Rainforest — testing only)
+
+For local testing without your own search API, use the included Amazon adapter:
 
 ```bash
 # Terminal 1 — Amazon search gateway
 pip install -r services/amazon-search/requirements.txt
 uvicorn services.amazon-search.main:app --reload --port 8100
 
-# Terminal 2 — agent with LLM extraction + Amazon search
+# Terminal 2 — agent with LLM + demo catalog
 set PRODUCT_API_URL=http://localhost:8100
 set LLM_API_KEY=sk-your-openai-key
 npm run dev
 ```
 
-For **live Amazon results**, set `RAINFOREST_API_KEY` in `.env` (see `.env.example`). Without it, the gateway returns demo products.
+Set `RAINFOREST_API_KEY` in `.env` for live Amazon results; without it, the gateway returns demo products.
 
-Ask: *"Find Sony wireless headphones under $200 with noise canceling"*
-
+## Python agent bridge (optional)
 
 Use the FastAPI bridge to proxy requests to your own Python agent:
 

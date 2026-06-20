@@ -1,11 +1,34 @@
 export interface WidgetTheme {
+  /** Light or dark palette. `auto` follows `data-theme` or system preference. */
+  mode?: "light" | "dark" | "auto";
   primaryColor?: string;
   backgroundColor?: string;
   textColor?: string;
+  borderColor?: string;
+  mutedTextColor?: string;
+  surfaceColor?: string;
+  elevatedSurfaceColor?: string;
+  inputBackgroundColor?: string;
+  inputBorderColor?: string;
+  mediaBackgroundColor?: string;
+  settingsBackgroundColor?: string;
   fontFamily?: string;
   borderRadius?: string;
   position?: "bottom-right" | "bottom-left";
   zIndex?: number;
+}
+
+export interface WidgetSizeConfig {
+  /** Enable drag-to-resize handles. Default true. */
+  resizable?: boolean;
+  width?: number;
+  height?: number;
+  minWidth?: number;
+  minHeight?: number;
+  maxWidth?: number;
+  maxHeight?: number;
+  /** Remember panel size in localStorage. Default true. */
+  persistSize?: boolean;
 }
 
 /** Product catalog API settings — search runs in the browser when delegateProductApi is true. */
@@ -20,6 +43,7 @@ export interface WidgetConfig {
   /** Base URL of the agent API, e.g. 'http://localhost:3000/api/agent' */
   apiUrl: string;
   theme?: WidgetTheme;
+  size?: WidgetSizeConfig;
   greeting?: string;
   placeholder?: string;
   title?: string;

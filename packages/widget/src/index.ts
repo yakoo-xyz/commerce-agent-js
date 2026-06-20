@@ -1,4 +1,6 @@
-import { WidgetApiClient, appendMessage, defaultStyles, extractProductListsFromSteps } from "./api-client.js";
+import { WidgetApiClient, appendMessage, baseWidgetStyles, extractProductListsFromSteps } from "./api-client.js";
+import { applyThemeToElement, resolveWidgetTheme, watchThemeChanges } from "./theme.js";
+import { setupPanelResize } from "./resize.js";
 import type {
   CommerceAgentWidgetGlobal,
   WidgetConfig,
@@ -11,12 +13,16 @@ import type {
 const STYLE_ID = "commerce-agent-widget-styles";
 const STORAGE_KEY = "commerce-agent-product-api";
 
-function injectStyles(config: WidgetConfig): void {
+function injectStyles(): void {
   if (document.getElementById(STYLE_ID)) return;
   const style = document.createElement("style");
   style.id = STYLE_ID;
-  style.textContent = defaultStyles(config);
+  style.textContent = baseWidgetStyles();
   document.head.appendChild(style);
+}
+
+function applyTheme(root: HTMLElement, config: WidgetConfig): void {
+  applyThemeToElement(root, resolveWidgetTheme(config.theme));
 }
 
 function loadStoredProductApi(): WidgetProductApiConfig | undefined {
@@ -35,7 +41,7 @@ function saveProductApi(config: WidgetProductApiConfig): void {
 }
 
 function createWidget(config: WidgetConfig): WidgetInstance {
-  injectStyles(config);
+  injectStyles();
 
   let productApi = config.productApi ?? loadStoredProductApi();
   const delegateProductApi = config.delegateProductApi !== false;
@@ -51,6 +57,12 @@ function createWidget(config: WidgetConfig): WidgetInstance {
 
   const root = document.createElement("div");
   root.className = "ca-widget-root";
+  applyTheme(root, config);
+
+  const stopThemeWatch =
+    config.theme?.mode === "auto" || config.theme?.mode === undefined
+      ? watchThemeChanges(() => applyTheme(root, config))
+      : null;
 
   const launcher = document.createElement("button");
   launcher.className = "ca-launcher";
@@ -144,6 +156,19 @@ function createWidget(config: WidgetConfig): WidgetInstance {
 
   panel.append(header, messages, inputRow);
   if (settingsEl) panel.append(settingsEl);
+
+  const stopResize = setupPanelResize(panel, {
+    position: config.theme?.position ?? "bottom-right",
+    resizable: config.size?.resizable,
+    defaultWidth: config.size?.width,
+    defaultHeight: config.size?.height,
+    minWidth: config.size?.minWidth,
+    minHeight: config.size?.minHeight,
+    maxWidth: config.size?.maxWidth,
+    maxHeight: config.size?.maxHeight,
+    persistSize: config.size?.persistSize,
+  });
+
   root.append(launcher, panel);
   document.body.appendChild(root);
 
@@ -278,7 +303,11 @@ function createWidget(config: WidgetConfig): WidgetInstance {
     open: () => setOpen(true),
     close: () => setOpen(false),
     toggle: () => setOpen(!open),
-    destroy: () => root.remove(),
+    destroy: () => {
+      stopThemeWatch?.();
+      stopResize();
+      root.remove();
+    },
   };
 }
 
