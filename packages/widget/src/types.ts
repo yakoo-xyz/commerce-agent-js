@@ -41,12 +41,22 @@ export interface WidgetProduct {
   title?: string;
   price?: number;
   shop_id?: string;
+  image?: string;
+  shop_name?: string;
+  brand?: string;
+}
+
+export interface WidgetProductLists {
+  bestMatches: WidgetProduct[];
+  recommendations: WidgetProduct[];
 }
 
 export interface WidgetMessage {
   role: "user" | "assistant" | "system";
   content: string;
+  /** @deprecated Use productLists */
   products?: WidgetProduct[];
+  productLists?: WidgetProductLists;
   thinking?: boolean;
 }
 

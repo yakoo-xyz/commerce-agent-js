@@ -1,7 +1,9 @@
 import { FALLBACK_PRODUCT_ID } from "./constants.js";
 import { appendStep, createToolCall, finishSession } from "./dialogue.js";
 import type { ProductSpec, ParsedQueryParams } from "./query-parser.js";
-import { extractQueryParamsRegex, specToFindProductParams } from "./query-parser.js";
+import { specToFindProductParams } from "./query-parser.js";
+import type { LlmConfig } from "./llm-query-parser.js";
+import { formatExtractSummary, parseQueryParams } from "./llm-query-parser.js";
 import type { FindProductParams, ProductApiPort } from "./product-api.js";
 import {
   checkPickAgainstQuery,
@@ -15,6 +17,8 @@ import type { DialogueStep, Product, ToolCall } from "../types.js";
 
 export interface AgentRunOptions {
   onStep?: (step: DialogueStep, index: number) => void;
+  /** OpenAI-compatible LLM for query extraction (product names, brands, features). */
+  llm?: LlmConfig;
 }
 
 export interface AgentRunResult {
@@ -392,7 +396,7 @@ async function runVoucherSearch(
   options?.onStep?.(steps[steps.length - 1], steps.length - 1);
 }
 
-/** Built-in commerce agent — uses heuristic scoring (no LLM). */
+/** Built-in commerce agent — LLM intent extraction + Amazon/catalog search. */
 export async function runCommerceAgent(
   query: string,
   api: ProductApiPort,
@@ -402,15 +406,12 @@ export async function runCommerceAgent(
   const ctx = new AgentContext(api);
 
   try {
-    const params = extractQueryParamsRegex(query);
-    const kwList = params.products.map((p) => p.keywords);
-    const priceList = params.products.map((p) => p.price_range);
-    const serviceList = params.products.map((p) => p.service);
+    const { params, source } = await parseQueryParams(query, options?.llm);
 
     emitStep(
       steps,
       options,
-      `Analyzing query. Keywords: ${kwList.join("; ")}. Price constraints: ${priceList.join("; ")}. Service filters: ${serviceList.join("; ")}.`,
+      formatExtractSummary(params, source),
       [],
       "",
       query,
@@ -470,3 +471,9 @@ export async function runCommerceAgent(
 export { DelegatingProductApiPort, CatalogApiClient } from "./product-api.js";
 export type { ProductApiConfig, ProductApiPort, PendingToolRequest } from "./product-api.js";
 export { extractQueryParamsRegex, inferTaskType } from "./query-parser.js";
+export {
+  extractQueryParamsLlm,
+  parseQueryParams,
+  formatExtractSummary,
+} from "./llm-query-parser.js";
+export type { LlmConfig } from "./llm-query-parser.js";

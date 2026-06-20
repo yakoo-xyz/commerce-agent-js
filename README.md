@@ -21,7 +21,23 @@ npm run dev
 
 Open **http://localhost:3000** — click the cart button to chat with the built-in agent.
 
-## Connect a Python agent backend
+## Amazon product search (LLM → search)
+
+```bash
+# Terminal 1 — Amazon search gateway
+pip install -r services/amazon-search/requirements.txt
+uvicorn services.amazon-search.main:app --reload --port 8100
+
+# Terminal 2 — agent with LLM extraction + Amazon search
+set PRODUCT_API_URL=http://localhost:8100
+set LLM_API_KEY=sk-your-openai-key
+npm run dev
+```
+
+For **live Amazon results**, set `RAINFOREST_API_KEY` in `.env` (see `.env.example`). Without it, the gateway returns demo products.
+
+Ask: *"Find Sony wireless headphones under $200 with noise canceling"*
+
 
 Use the FastAPI bridge to proxy requests to your own Python agent:
 
@@ -70,7 +86,7 @@ const agent = new CommerceAgent({
 const session = agent.createSession();
 const result = await agent.query(
   session.id,
-  "Find waterproof running shoes under 3000 pesos",
+  "Find waterproof running shoes under $100",
 );
 
 console.log(result.productIds, result.products, result.steps);

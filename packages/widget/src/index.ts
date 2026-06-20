@@ -1,10 +1,11 @@
-import { WidgetApiClient, appendMessage, defaultStyles, extractProductsFromSteps } from "./api-client.js";
+import { WidgetApiClient, appendMessage, defaultStyles, extractProductListsFromSteps } from "./api-client.js";
 import type {
   CommerceAgentWidgetGlobal,
   WidgetConfig,
   WidgetInstance,
   WidgetProduct,
   WidgetProductApiConfig,
+  WidgetProductLists,
 } from "./types.js";
 
 const STYLE_ID = "commerce-agent-widget-styles";
@@ -46,7 +47,7 @@ function createWidget(config: WidgetConfig): WidgetInstance {
 
   const title = config.title ?? "Shopping Assistant";
   const greeting = config.greeting ?? "Hi! Tell me what you're looking for and I'll find the best products.";
-  const placeholder = config.placeholder ?? "e.g. wireless earbuds under 2000 pesos";
+  const placeholder = config.placeholder ?? "e.g. wireless earbuds under $50";
 
   const root = document.createElement("div");
   root.className = "ca-widget-root";
@@ -155,6 +156,24 @@ function createWidget(config: WidgetConfig): WidgetInstance {
       : greeting,
   });
 
+  function resolveProductLists(result: {
+    bestMatches?: WidgetProduct[];
+    recommendations?: WidgetProduct[];
+    products?: WidgetProduct[];
+    steps: Array<{ tool_calls?: Array<{ name: string; params?: Record<string, unknown>; result?: unknown }> }>;
+  }): WidgetProductLists {
+    if (result.bestMatches?.length || result.recommendations?.length) {
+      return {
+        bestMatches: result.bestMatches ?? [],
+        recommendations: result.recommendations ?? [],
+      };
+    }
+    if (result.products?.length) {
+      return { bestMatches: result.products, recommendations: [] };
+    }
+    return extractProductListsFromSteps(result.steps);
+  }
+
   let open = false;
   let busy = false;
   let thinkingEl: HTMLElement | null = null;
@@ -199,15 +218,16 @@ function createWidget(config: WidgetConfig): WidgetInstance {
         onDone: (result) => {
           if (thinkingEl) thinkingEl.remove();
           thinkingEl = null;
-          const products = result.products?.length
-            ? result.products
-            : extractProductsFromSteps(result.steps as Parameters<typeof extractProductsFromSteps>[0]);
+          const productLists = resolveProductLists({
+            ...result,
+            steps: result.steps as Parameters<typeof extractProductListsFromSteps>[0],
+          });
           const lastThink =
             (result.steps as Array<{ think?: string }>)?.at(-1)?.think ??
             "Here are my recommendations.";
           appendMessage(
             messages,
-            { role: "assistant", content: lastThink, products },
+            { role: "assistant", content: lastThink, productLists },
             config.onProductClick,
           );
           busy = false;
@@ -228,13 +248,11 @@ function createWidget(config: WidgetConfig): WidgetInstance {
       const result = await api.sendMessage(text);
       if (thinkingEl) thinkingEl.remove();
       thinkingEl = null;
-      const products = result.products?.length
-        ? result.products
-        : extractProductsFromSteps(result.steps);
+      const productLists = resolveProductLists(result);
       const lastThink = result.steps.at(-1)?.think ?? "Here are my recommendations.";
       appendMessage(
         messages,
-        { role: "assistant", content: lastThink, products },
+        { role: "assistant", content: lastThink, productLists },
         config.onProductClick,
       );
     } catch (err) {
@@ -277,4 +295,4 @@ if (typeof window !== "undefined") {
   window.CommerceAgentWidget = globalApi;
 }
 
-export type { WidgetConfig, WidgetInstance, WidgetProduct, CommerceAgentWidgetGlobal, WidgetProductApiConfig };
+export type { WidgetConfig, WidgetInstance, WidgetProduct, WidgetProductLists, CommerceAgentWidgetGlobal, WidgetProductApiConfig };

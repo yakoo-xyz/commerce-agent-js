@@ -6,9 +6,15 @@ export {
   CatalogApiClient,
   DelegatingProductApiPort,
   extractQueryParamsRegex,
+  extractQueryParamsLlm,
+  parseQueryParams,
+  formatExtractSummary,
   inferTaskType,
 } from "./agent/agent-runner.js";
+export type { LlmConfig } from "./agent/llm-query-parser.js";
 export type { ProductApiConfig, PendingToolRequest, FindProductParams } from "./agent/product-api.js";
+export type { ProductLists } from "./product-results.js";
+export { partitionProductsFromSteps } from "./product-results.js";
 export type {
   AgentBackendRequest,
   AgentBackendResponse,

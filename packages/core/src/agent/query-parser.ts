@@ -12,6 +12,7 @@ export interface ProductSpec {
   price_range?: string | null;
   service?: string | null;
   brand?: string | null;
+  features?: string[];
   only_product_type?: boolean;
 }
 
@@ -175,9 +176,19 @@ export function specToFindProductParams(
   options: { includePrice?: boolean } = {},
 ): Record<string, string | number> {
   const includePrice = options.includePrice !== false;
-  let searchQuery = product.keywords;
+  const parts = [product.keywords];
+  if (product.brand && !product.keywords.toLowerCase().includes(product.brand.toLowerCase())) {
+    parts.push(product.brand);
+  }
+  if (product.features?.length) {
+    for (const f of product.features.slice(0, 3)) {
+      if (!product.keywords.toLowerCase().includes(f.toLowerCase())) parts.push(f);
+    }
+  }
+
+  let searchQuery = parts.join(" ").trim();
   if (!product.service && product.only_product_type) {
-    searchQuery = `${product.keywords} only`;
+    searchQuery = `${searchQuery} only`;
   }
 
   const params: Record<string, string | number> = { q: searchQuery };

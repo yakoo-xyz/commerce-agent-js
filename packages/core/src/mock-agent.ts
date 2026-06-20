@@ -4,20 +4,28 @@ const DEMO_PRODUCTS = [
   {
     product_id: "10001",
     title: "Wireless Bluetooth Earbuds Pro",
-    price: 1899,
+    price: 49.99,
     shop_id: "shop-42",
+    shop_name: "AudioHub",
+    brand: "SoundPro",
+    image: "https://images.unsplash.com/photo-1606220588913-b3aacb4d2f46?w=400",
   },
   {
     product_id: "10002",
     title: "Running Shoes Lightweight Mesh",
-    price: 2499,
+    price: 89.99,
     shop_id: "shop-17",
+    shop_name: "SportZone",
+    brand: "Nike",
+    image: "https://images.unsplash.com/photo-1542291026-7eec264c27ff?w=400",
   },
   {
     product_id: "10003",
     title: "Cotton Crew Socks 3-Pack",
-    price: 399,
+    price: 14.99,
     shop_id: "shop-17",
+    shop_name: "SportZone",
+    image: "https://images.unsplash.com/photo-1586350977771-b3d0a754c2ce?w=400",
   },
 ];
 
@@ -57,7 +65,10 @@ function buildSteps(query: string, task: "product" | "shop" | "voucher"): Dialog
       ? [DEMO_PRODUCTS[1], DEMO_PRODUCTS[2]]
       : task === "voucher"
         ? DEMO_PRODUCTS
-        : [DEMO_PRODUCTS[0]];
+        : DEMO_PRODUCTS;
+
+  const bestMatch = searchResults[0];
+  const recommendations = searchResults.slice(1);
 
   const step2: DialogueStep = {
     step: 2,
@@ -73,15 +84,15 @@ function buildSteps(query: string, task: "product" | "shop" | "voucher"): Dialog
     query,
   };
 
-  const productIds = searchResults.map((p) => p.product_id);
+  const productIds = [bestMatch.product_id];
   const step3: DialogueStep = {
     step: 3,
     think:
       task === "voucher"
-        ? `Selected products fit within your budget after voucher discount. Total before discount: ₱${searchResults.reduce((s, p) => s + (p.price ?? 0), 0)}.`
+        ? `Selected products fit within your budget after voucher discount. Total before discount: $${searchResults.reduce((s, p) => s + (p.price ?? 0), 0).toFixed(2)}.`
         : task === "shop"
           ? `Both items are available from the same shop (shop-17). Recommending this combination.`
-          : `Best match: "${searchResults[0]?.title}" at ₱${searchResults[0]?.price}.`,
+          : `Best match: "${bestMatch?.title}" at $${bestMatch?.price?.toFixed(2)}.`,
     tool_calls: [
       { name: "recommend_product", params: { product_ids: productIds.join(",") }, result: `Recommended: ${productIds.join(",")}` },
       { name: "terminate", params: { status: "success" }, result: "The interaction has been completed with status: success" },
@@ -108,15 +119,11 @@ export async function runMockAgent(
 
   const productIds = steps
     .flatMap((s) => s.tool_calls)
-    .filter((tc) => tc.name === "find_product")
+    .filter((tc) => tc.name === "recommend_product")
     .flatMap((tc) => {
-      const result = tc.result;
-      if (Array.isArray(result)) {
-        return result.map((p: { product_id?: string }) => String(p.product_id ?? ""));
-      }
-      return [];
-    })
-    .filter(Boolean);
+      const raw = String(tc.params?.product_ids ?? "");
+      return raw.split(",").map((id) => id.trim()).filter(Boolean);
+    });
 
   const uniqueIds = [...new Set(productIds)];
 

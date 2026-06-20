@@ -8,8 +8,14 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.PORT ?? 3000);
 
 const agentBackendUrl = process.env.AGENT_BACKEND_URL;
-const productApiUrl = process.env.PRODUCT_API_URL;
-const productApiKey = process.env.PRODUCT_API_KEY;
+const productApiUrl =
+  process.env.PRODUCT_API_URL ?? process.env.AMAZON_SEARCH_URL ?? process.env.TIKTOK_SEARCH_URL;
+const productApiKey =
+  process.env.PRODUCT_API_KEY ?? process.env.RAINFOREST_API_KEY ?? process.env.TIKTOK_API_KEY;
+
+const llmApiKey = process.env.LLM_API_KEY ?? process.env.OPENAI_API_KEY;
+const llmBaseUrl = process.env.LLM_BASE_URL ?? "https://api.openai.com/v1";
+const llmModel = process.env.LLM_MODEL ?? "gpt-4o-mini";
 
 const usePythonBridge = Boolean(agentBackendUrl);
 const useLocalAgent = !usePythonBridge;
@@ -28,6 +34,9 @@ const router = createCommerceAgentRouter({
     productApi: productApiUrl
       ? { baseUrl: productApiUrl, apiKey: productApiKey }
       : undefined,
+    llm: llmApiKey
+      ? { baseUrl: llmBaseUrl, apiKey: llmApiKey, model: llmModel }
+      : undefined,
   },
   corsOrigins: "*",
 });
@@ -40,7 +49,7 @@ app.use("/widget", express.static(widgetDist));
 const modeLabel = usePythonBridge
   ? `Python bridge @ ${agentBackendUrl}`
   : productApiUrl
-    ? `Built-in agent + server product API @ ${productApiUrl}`
+    ? `Amazon shopping agent @ ${productApiUrl}${llmApiKey ? " + LLM extract" : ""}`
     : "Built-in agent (client-side product API via widget settings)";
 
 app.get("/", (_req, res) => {
@@ -62,19 +71,33 @@ app.get("/", (_req, res) => {
   <h1>Commerce Agent Demo</h1>
   <p class="badge">Mode: ${modeLabel}</p>
   <p>Click the cart button to chat with the shopping assistant.</p>
-  <ol>
+  ${
+    productApiUrl
+      ? `<ol>
+    <li>Ask naturally, e.g. <code>Find Sony wireless earbuds under $50 with ANC</code></li>
+    <li>The server ${llmApiKey ? "uses LLM to extract keywords, brand, and features" : "parses keywords with regex (set <code>LLM_API_KEY</code> for AI extraction)"}</li>
+    <li>Product search runs on Amazon via <code>${productApiUrl}</code></li>
+  </ol>`
+      : `<ol>
     <li>Open widget settings (⚙ Product API settings)</li>
     <li>Enter your product catalog API base URL (serves <code>/search/find_product</code> and <code>/search/view_product_information</code>)</li>
-    <li>Ask: <code>Find wireless earbuds under 2000 pesos</code></li>
-  </ol>
+    <li>Ask: <code>Find wireless earbuds under $50</code></li>
+  </ol>`
+  }
   <script src="/widget/commerce-agent-widget.js"></script>
   <script>
     CommerceAgentWidget.init({
       apiUrl: window.location.origin + '/api/agent',
-      delegateProductApi: true,
-      showProductApiSettings: true,
+      delegateProductApi: ${productApiUrl ? "false" : "true"},
+      showProductApiSettings: ${productApiUrl ? "false" : "true"},
       theme: { primaryColor: '#6366f1', position: 'bottom-right' },
-      greeting: 'Hi! I can help you find products. Set your product API URL in settings, then ask me anything.',
+      greeting: ${JSON.stringify(
+        productApiUrl
+          ? llmApiKey
+            ? "Hi! I'll extract what you want with AI, then search Amazon for the best matches."
+            : "Hi! Set LLM_API_KEY on the server for AI intent extraction. Searching with keyword parsing for now."
+          : "Hi! I can help you find products. Set your product catalog API URL in settings, then ask me anything.",
+      )},
       onProductClick: function(p) { alert('Product clicked: ' + (p.title || p.product_id)); }
     });
   </script>

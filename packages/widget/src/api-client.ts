@@ -1,4 +1,4 @@
-import type { WidgetConfig, WidgetMessage, WidgetProduct } from "./types.js";
+import type { WidgetConfig, WidgetMessage, WidgetProduct, WidgetProductLists } from "./types.js";
 
 export interface ProductApiSettings {
   /** Product catalog API base URL, e.g. https://your-api.example.com */
@@ -108,6 +108,8 @@ export class WidgetApiClient {
   async sendMessage(message: string): Promise<{
     steps: Array<{ think: string; tool_calls: Array<{ name: string; result?: unknown }> }>;
     products: WidgetProduct[];
+    bestMatches?: WidgetProduct[];
+    recommendations?: WidgetProduct[];
     status: string;
   }> {
     const sessionId = await this.ensureSession();
@@ -133,7 +135,13 @@ export class WidgetApiClient {
     message: string,
     handlers: {
       onStep?: (step: { think: string; tool_calls: unknown[] }, index: number) => void;
-      onDone?: (result: { products: WidgetProduct[]; status: string; steps: unknown[] }) => void;
+      onDone?: (result: {
+        products: WidgetProduct[];
+        bestMatches?: WidgetProduct[];
+        recommendations?: WidgetProduct[];
+        status: string;
+        steps: unknown[];
+      }) => void;
       onError?: (err: Error) => void;
     },
   ): void {
@@ -189,6 +197,8 @@ export class WidgetApiClient {
         try {
           const result = JSON.parse((ev as MessageEvent).data) as {
             products: WidgetProduct[];
+            bestMatches?: WidgetProduct[];
+            recommendations?: WidgetProduct[];
             status: string;
             steps: unknown[];
           };
@@ -209,22 +219,73 @@ export class WidgetApiClient {
   }
 }
 
-export function extractProductsFromSteps(
-  steps: Array<{ tool_calls?: Array<{ name: string; result?: unknown }> }>,
-): WidgetProduct[] {
+export function extractProductListsFromSteps(
+  steps: Array<{ tool_calls?: Array<{ name: string; params?: Record<string, unknown>; result?: unknown }> }>,
+): WidgetProductLists {
   const byId = new Map<string, WidgetProduct>();
+  const recommendedIds: string[] = [];
+
   for (const step of steps) {
     for (const tc of step.tool_calls ?? []) {
-      if (tc.name !== "find_product" || !Array.isArray(tc.result)) continue;
-      for (const row of tc.result) {
-        if (row && typeof row === "object" && "product_id" in row) {
-          const p = row as WidgetProduct;
-          byId.set(String(p.product_id), p);
+      if (tc.name === "recommend_product") {
+        const raw = String(tc.params?.product_ids ?? "");
+        for (const id of raw.split(",")) {
+          const pid = id.trim();
+          if (pid && pid !== "0") recommendedIds.push(pid);
+        }
+      }
+      if (tc.name === "find_product" && Array.isArray(tc.result)) {
+        for (const row of tc.result) {
+          if (row && typeof row === "object" && "product_id" in row) {
+            const p = row as WidgetProduct;
+            byId.set(String(p.product_id), p);
+          }
         }
       }
     }
   }
-  return [...byId.values()];
+
+  const recommendedSet = new Set(recommendedIds);
+  let bestMatches = recommendedIds
+    .map((id) => byId.get(id))
+    .filter((p): p is WidgetProduct => Boolean(p));
+
+  let recommendations = [...byId.values()].filter(
+    (p) => !recommendedSet.has(String(p.product_id)),
+  );
+
+  if (!bestMatches.length && byId.size) {
+    const ordered = [...byId.values()];
+    bestMatches = [ordered[0]];
+    recommendations = ordered.slice(1);
+  }
+
+  return {
+    bestMatches,
+    recommendations: recommendations.slice(0, 6),
+  };
+}
+
+/** @deprecated Use extractProductListsFromSteps */
+export function extractProductsFromSteps(
+  steps: Array<{ tool_calls?: Array<{ name: string; result?: unknown }> }>,
+): WidgetProduct[] {
+  const { bestMatches, recommendations } = extractProductListsFromSteps(steps);
+  return [...bestMatches, ...recommendations];
+}
+
+function formatPriceUsd(price: number): string {
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(price);
+}
+
+function productImageUrl(product: WidgetProduct): string | null {
+  const image = product.image;
+  return typeof image === "string" && image.trim() ? image.trim() : null;
 }
 
 export function defaultStyles(config: WidgetConfig): string {
@@ -251,11 +312,18 @@ export function defaultStyles(config: WidgetConfig): string {
     .ca-msg.assistant { align-self: flex-start; background: #f1f5f9; border-bottom-left-radius: 4px; }
     .ca-msg.system { align-self: center; background: transparent; color: #64748b; font-size: 13px; text-align: center; }
     .ca-msg.thinking { opacity: .7; font-style: italic; }
-    .ca-products { display: flex; flex-direction: column; gap: 8px; margin-top: 8px; }
-    .ca-product { border: 1px solid #e2e8f0; border-radius: 8px; padding: 10px; cursor: pointer; background: #fff; transition: border-color .15s; }
-    .ca-product:hover { border-color: var(--ca-primary); }
-    .ca-product-title { font-weight: 600; font-size: 13px; margin-bottom: 4px; }
-    .ca-product-price { color: var(--ca-primary); font-weight: 700; font-size: 14px; }
+    .ca-products { display: flex; flex-direction: column; gap: 10px; margin-top: 10px; }
+    .ca-product-section { display: flex; flex-direction: column; gap: 8px; }
+    .ca-product-section-title { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; color: #64748b; }
+    .ca-product { display: flex; gap: 10px; border: 1px solid #e2e8f0; border-radius: 8px; padding: 10px; cursor: pointer; background: #fff; transition: border-color .15s, box-shadow .15s; }
+    .ca-product:hover { border-color: var(--ca-primary); box-shadow: 0 2px 8px rgba(99,102,241,.12); }
+    .ca-product-media { flex-shrink: 0; width: 72px; height: 72px; border-radius: 8px; overflow: hidden; background: #f1f5f9; }
+    .ca-product-media img { width: 100%; height: 100%; object-fit: cover; display: block; }
+    .ca-product-placeholder { width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; font-size: 22px; color: #94a3b8; }
+    .ca-product-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+    .ca-product-title { font-weight: 600; font-size: 13px; line-height: 1.35; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+    .ca-product-meta { font-size: 11px; color: #64748b; }
+    .ca-product-price { color: var(--ca-primary); font-weight: 700; font-size: 14px; margin-top: auto; }
     .ca-input-row { display: flex; gap: 8px; padding: 12px; border-top: 1px solid #e2e8f0; }
     .ca-input { flex: 1; border: 1px solid #cbd5e1; border-radius: 8px; padding: 10px 12px; font-size: 14px; font-family: inherit; outline: none; }
     .ca-input:focus { border-color: var(--ca-primary); }
@@ -268,23 +336,92 @@ export function defaultStyles(config: WidgetConfig): string {
   `;
 }
 
-export function renderProductCards(
-  products: WidgetProduct[],
+export function renderProductCard(
+  product: WidgetProduct,
+  onClick?: (p: WidgetProduct) => void,
+): HTMLElement {
+  const card = document.createElement("div");
+  card.className = "ca-product";
+
+  const media = document.createElement("div");
+  media.className = "ca-product-media";
+  const imageUrl = productImageUrl(product);
+  if (imageUrl) {
+    const img = document.createElement("img");
+    img.src = imageUrl;
+    img.alt = product.title ?? "Product";
+    img.loading = "lazy";
+    img.addEventListener("error", () => {
+      img.replaceWith(createImagePlaceholder());
+    });
+    media.appendChild(img);
+  } else {
+    media.appendChild(createImagePlaceholder());
+  }
+
+  const body = document.createElement("div");
+  body.className = "ca-product-body";
+  body.innerHTML = `
+    <div class="ca-product-title">${escapeHtml(product.title ?? `Product ${product.product_id}`)}</div>
+    ${product.brand || product.shop_name ? `<div class="ca-product-meta">${escapeHtml([product.brand, product.shop_name].filter(Boolean).join(" · "))}</div>` : ""}
+    ${product.price != null ? `<div class="ca-product-price">${formatPriceUsd(product.price)}</div>` : ""}
+  `;
+
+  card.append(media, body);
+  card.addEventListener("click", () => onClick?.(product));
+  return card;
+}
+
+function createImagePlaceholder(): HTMLElement {
+  const el = document.createElement("div");
+  el.className = "ca-product-placeholder";
+  el.textContent = "🛍";
+  return el;
+}
+
+export function renderProductLists(
+  lists: WidgetProductLists,
   onClick?: (p: WidgetProduct) => void,
 ): HTMLElement {
   const wrap = document.createElement("div");
   wrap.className = "ca-products";
-  for (const p of products) {
-    const card = document.createElement("div");
-    card.className = "ca-product";
-    card.innerHTML = `
-      <div class="ca-product-title">${escapeHtml(p.title ?? `Product ${p.product_id}`)}</div>
-      ${p.price != null ? `<div class="ca-product-price">₱${p.price.toLocaleString()}</div>` : ""}
-    `;
-    card.addEventListener("click", () => onClick?.(p));
-    wrap.appendChild(card);
+
+  if (lists.bestMatches.length) {
+    wrap.appendChild(renderProductSection("Best matches", lists.bestMatches, onClick));
   }
+  if (lists.recommendations.length) {
+    wrap.appendChild(renderProductSection("Recommendations", lists.recommendations, onClick));
+  }
+
   return wrap;
+}
+
+function renderProductSection(
+  title: string,
+  products: WidgetProduct[],
+  onClick?: (p: WidgetProduct) => void,
+): HTMLElement {
+  const section = document.createElement("div");
+  section.className = "ca-product-section";
+
+  const heading = document.createElement("div");
+  heading.className = "ca-product-section-title";
+  heading.textContent = title;
+  section.appendChild(heading);
+
+  for (const product of products) {
+    section.appendChild(renderProductCard(product, onClick));
+  }
+
+  return section;
+}
+
+/** @deprecated Use renderProductLists */
+export function renderProductCards(
+  products: WidgetProduct[],
+  onClick?: (p: WidgetProduct) => void,
+): HTMLElement {
+  return renderProductLists({ bestMatches: products, recommendations: [] }, onClick);
 }
 
 function escapeHtml(s: string): string {
@@ -299,8 +436,13 @@ export function appendMessage(
   const el = document.createElement("div");
   el.className = `ca-msg ${msg.role}${msg.thinking ? " thinking" : ""}`;
   el.textContent = msg.content;
-  if (msg.products?.length) {
-    el.appendChild(renderProductCards(msg.products, onProductClick));
+  const lists =
+    msg.productLists ??
+    (msg.products?.length
+      ? { bestMatches: msg.products, recommendations: [] as WidgetProduct[] }
+      : null);
+  if (lists && (lists.bestMatches.length || lists.recommendations.length)) {
+    el.appendChild(renderProductLists(lists, onProductClick));
   }
   container.appendChild(el);
   container.scrollTop = container.scrollHeight;

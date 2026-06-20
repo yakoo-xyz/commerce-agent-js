@@ -32,6 +32,10 @@ export interface AgentResult {
   status: AgentStatus;
   productIds: string[];
   products: Product[];
+  /** Top pick(s) from recommend_product. */
+  bestMatches?: Product[];
+  /** Additional products from search results. */
+  recommendations?: Product[];
   steps: DialogueStep[];
   sessionId?: string;
 }
@@ -58,7 +62,9 @@ export interface ProductApiConfig {
   minIntervalMs?: number;
 }
 
-/** Configuration for CommerceAgent. */
+import type { LlmConfig } from "./agent/llm-query-parser.js";
+
+export type { LlmConfig };
 export interface CommerceAgentConfig {
   /** Base URL of the agent backend (Python bridge or hosted API). */
   agentBackendUrl?: string;
@@ -75,6 +81,8 @@ export interface CommerceAgentConfig {
   useLocalAgent?: boolean;
   /** Server-side product catalog API base URL for find_product / view_product_information. */
   productApi?: ProductApiConfig;
+  /** LLM for intent extraction (product names, brands, features). */
+  llm?: LlmConfig;
 }
 
 /** Injectable product API for delegated (client-side) tool execution. */
@@ -92,6 +100,8 @@ export interface QueryOptions {
   productApiPort?: ProductApiPort;
   /** Called when the agent needs the client to execute a product API tool. */
   onToolRequest?: (request: import("./agent/product-api.js").PendingToolRequest) => void;
+  /** Override LLM config for this query (defaults to CommerceAgentConfig.llm). */
+  llm?: LlmConfig;
 }
 
 /** Backend request body sent to the Python agent bridge. */

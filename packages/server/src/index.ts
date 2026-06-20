@@ -4,6 +4,7 @@ import {
   DelegatingProductApiPort,
   runCommerceAgent,
   CatalogApiClient,
+  partitionProductsFromSteps,
 } from "@commerce-agent/core";
 import type { AgentResult, DialogueStep, PendingToolRequest, ProductApiConfig } from "@commerce-agent/core";
 
@@ -64,6 +65,7 @@ export function createCommerceAgentRouter(config: ServerConfig = {}) {
   const basePath = config.basePath ?? "/api/agent";
   const corsOrigins = config.corsOrigins ?? "*";
   const serverProductApi = config.agentConfig?.productApi;
+  const serverLlm = config.agentConfig?.llm;
   const useLocalAgent = Boolean(config.agentConfig?.useLocalAgent || serverProductApi);
 
   const delegatedRuns = new Map<string, ActiveDelegatedRun>();
@@ -84,6 +86,22 @@ export function createCommerceAgentRouter(config: ServerConfig = {}) {
     next();
   }
 
+  function buildAgentResult(
+    result: { steps: DialogueStep[]; status: "success" | "failure"; product_ids: string[] },
+    sessionId: string,
+  ): AgentResult {
+    const { bestMatches, recommendations } = partitionProductsFromSteps(result.steps);
+    return {
+      status: result.status,
+      productIds: result.product_ids,
+      products: [...bestMatches, ...recommendations],
+      bestMatches,
+      recommendations,
+      steps: result.steps,
+      sessionId,
+    };
+  }
+
   async function handleQuery(
     sessionId: string,
     message: string,
@@ -95,6 +113,17 @@ export function createCommerceAgentRouter(config: ServerConfig = {}) {
     } = {},
   ): Promise<AgentResult> {
     const delegate = options.delegateProductApi ?? false;
+    const catalogApi = options.productApi ?? serverProductApi;
+
+    // Server-side catalog + LLM when product API is configured on the server
+    if (catalogApi && (!delegate || !options.productApi)) {
+      const api = new CatalogApiClient(catalogApi);
+      const result = await runCommerceAgent(message, api, {
+        onStep: options.onStep,
+        llm: serverLlm,
+      });
+      return buildAgentResult(result, sessionId);
+    }
 
     if (delegate) {
       const port = new DelegatingProductApiPort();
@@ -102,48 +131,17 @@ export function createCommerceAgentRouter(config: ServerConfig = {}) {
       delegatedRuns.set(sessionId, { port });
 
       try {
-        const result = await runCommerceAgent(message, port, { onStep: options.onStep });
-        return {
-          status: result.status,
-          productIds: result.product_ids,
-          products: extractProductsFromSteps(result.steps),
-          steps: result.steps,
-          sessionId,
-        };
+        const result = await runCommerceAgent(message, port, {
+          onStep: options.onStep,
+          llm: serverLlm,
+        });
+        return buildAgentResult(result, sessionId);
       } finally {
         delegatedRuns.delete(sessionId);
       }
     }
 
-    if (options.productApi) {
-      const api = new CatalogApiClient(options.productApi);
-      const result = await runCommerceAgent(message, api, { onStep: options.onStep });
-      return {
-        status: result.status,
-        productIds: result.product_ids,
-        products: extractProductsFromSteps(result.steps),
-        steps: result.steps,
-        sessionId,
-      };
-    }
-
-    return agent.query(sessionId, message, { onStep: options.onStep });
-  }
-
-  function extractProductsFromSteps(steps: DialogueStep[]) {
-    const byId = new Map<string, AgentResult["products"][0]>();
-    for (const step of steps) {
-      for (const tc of step.tool_calls) {
-        if (tc.name !== "find_product" || !Array.isArray(tc.result)) continue;
-        for (const row of tc.result) {
-          if (row && typeof row === "object" && "product_id" in row) {
-            const p = row as AgentResult["products"][0];
-            byId.set(String(p.product_id), p);
-          }
-        }
-      }
-    }
-    return [...byId.values()];
+    return agent.query(sessionId, message, { onStep: options.onStep, llm: serverLlm });
   }
 
   return {
@@ -274,6 +272,8 @@ export function createCommerceAgentRouter(config: ServerConfig = {}) {
           mock: agent.isMock,
           localAgent: useLocalAgent,
           hasServerProductApi: Boolean(serverProductApi),
+          hasLlm: Boolean(serverLlm?.apiKey && serverLlm?.baseUrl),
+          llmModel: serverLlm?.model ?? null,
         });
       });
     },

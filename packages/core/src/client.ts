@@ -1,5 +1,6 @@
 import { runMockAgent } from "./mock-agent.js";
 import { runCommerceAgent, CatalogApiClient } from "./agent/agent-runner.js";
+import { partitionProductsFromSteps } from "./product-results.js";
 import type {
   AgentBackendRequest,
   AgentBackendResponse,
@@ -115,11 +116,14 @@ function normalizeResponse(
   const productIds = data.product_ids?.length
     ? data.product_ids.map(String)
     : extractProductIds(steps);
+  const { bestMatches, recommendations } = partitionProductsFromSteps(steps);
 
   return {
     status: inferStatus(steps, data.status),
     productIds,
     products: extractProducts(steps),
+    bestMatches,
+    recommendations,
     steps,
     sessionId,
   };
@@ -150,7 +154,8 @@ export class AgentClient {
   }
 
   async query(message: string, options: QueryOptions = {}): Promise<AgentResult> {
-    const { sessionId, onStep, productApiPort } = options;
+    const { sessionId, onStep, productApiPort, llm: llmOverride } = options;
+    const llm = llmOverride ?? this.config.llm;
 
     let backend: AgentBackendResponse;
 
@@ -160,7 +165,10 @@ export class AgentClient {
       const api =
         productApiPort ??
         new CatalogApiClient(this.config.productApi!);
-      const result = await runCommerceAgent(message, api, { onStep });
+      const result = await runCommerceAgent(message, api, {
+        onStep,
+        llm,
+      });
       backend = {
         steps: result.steps,
         status: result.status,
