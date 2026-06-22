@@ -1,4 +1,4 @@
-import { WidgetApiClient, appendMessage, baseWidgetStyles, extractProductListsFromSteps } from "./api-client.js";
+import { WidgetApiClient, appendMessage, baseWidgetStyles, extractProductListsFromSteps, setThinkingContent } from "./api-client.js";
 import { applyThemeToElement, resolveWidgetTheme, watchThemeChanges } from "./theme.js";
 import { setupPanelResize } from "./resize.js";
 import type {
@@ -56,7 +56,7 @@ function createWidget(config: WidgetConfig): WidgetInstance {
   const placeholder = config.placeholder ?? "e.g. wireless earbuds under $50";
 
   const root = document.createElement("div");
-  root.className = "ca-widget-root";
+  root.className = `ca-widget-root${config.promo ? " ca-widget-promo" : ""}`;
   applyTheme(root, config);
 
   const stopThemeWatch =
@@ -64,18 +64,49 @@ function createWidget(config: WidgetConfig): WidgetInstance {
       ? watchThemeChanges(() => applyTheme(root, config))
       : null;
 
+  const launcherWrap = document.createElement("div");
+  launcherWrap.className = "ca-launcher-wrap";
+
   const launcher = document.createElement("button");
   launcher.className = "ca-launcher";
   launcher.type = "button";
   launcher.setAttribute("aria-label", "Open shopping assistant");
-  launcher.textContent = "🛒";
+  const launcherIcon = document.createElement("span");
+  launcherIcon.className = "ca-launcher-icon";
+  launcherIcon.textContent = "🛒";
+  launcher.appendChild(launcherIcon);
+  if (config.launcherHint) {
+    const hint = document.createElement("span");
+    hint.className = "ca-launcher-hint";
+    hint.textContent = config.launcherHint;
+    launcher.appendChild(hint);
+  }
+  launcherWrap.appendChild(launcher);
 
   const panel = document.createElement("div");
   panel.className = "ca-panel hidden";
 
   const header = document.createElement("div");
   header.className = "ca-header";
-  header.innerHTML = `<span>${title}</span>`;
+  const headerMain = document.createElement("div");
+  headerMain.className = "ca-header-main";
+  const headerTitle = document.createElement("span");
+  headerTitle.className = "ca-header-title";
+  headerTitle.textContent = title;
+  headerMain.appendChild(headerTitle);
+  if (config.headerSubtitle) {
+    const headerSubtitle = document.createElement("span");
+    headerSubtitle.className = "ca-header-subtitle";
+    headerSubtitle.textContent = config.headerSubtitle;
+    headerMain.appendChild(headerSubtitle);
+  }
+  if (config.promo) {
+    const badge = document.createElement("span");
+    badge.className = "ca-header-badge";
+    badge.innerHTML = '<span class="ca-header-badge-dot" aria-hidden="true"></span> Live demo';
+    headerMain.appendChild(badge);
+  }
+  header.appendChild(headerMain);
 
   const closeBtn = document.createElement("button");
   closeBtn.className = "ca-close";
@@ -169,7 +200,7 @@ function createWidget(config: WidgetConfig): WidgetInstance {
     persistSize: config.size?.persistSize,
   });
 
-  root.append(launcher, panel);
+  root.append(launcherWrap, panel);
   document.body.appendChild(root);
 
   appendMessage(messages, {
@@ -180,6 +211,34 @@ function createWidget(config: WidgetConfig): WidgetInstance {
         : `${greeting} Configure your product catalog API URL in settings to search real products.`
       : greeting,
   });
+
+  let promptsEl: HTMLElement | null = null;
+  if (config.suggestedPrompts?.length) {
+    promptsEl = document.createElement("div");
+    promptsEl.className = "ca-suggested-prompts";
+    const label = document.createElement("span");
+    label.className = "ca-prompt-chip-label";
+    label.textContent = "Try an example";
+    promptsEl.appendChild(label);
+    for (const prompt of config.suggestedPrompts.slice(0, 3)) {
+      const chip = document.createElement("button");
+      chip.type = "button";
+      chip.className = "ca-prompt-chip";
+      chip.textContent = prompt;
+      chip.addEventListener("click", () => {
+        if (busy) return;
+        input.value = prompt;
+        void submit();
+      });
+      promptsEl.appendChild(chip);
+    }
+    messages.appendChild(promptsEl);
+  }
+
+  function hideSuggestedPrompts(): void {
+    promptsEl?.remove();
+    promptsEl = null;
+  }
 
   function resolveProductLists(result: {
     bestMatches?: WidgetProduct[];
@@ -205,12 +264,24 @@ function createWidget(config: WidgetConfig): WidgetInstance {
 
   function setOpen(value: boolean): void {
     open = value;
-    panel.classList.toggle("hidden", !open);
+    if (open) {
+      panel.classList.remove("hidden");
+      requestAnimationFrame(() => panel.classList.add("ca-panel-open"));
+      const hint = launcher.querySelector(".ca-launcher-hint");
+      hint?.remove();
+    } else {
+      panel.classList.remove("ca-panel-open");
+      window.setTimeout(() => {
+        if (!open) panel.classList.add("hidden");
+      }, 280);
+    }
   }
 
   async function submit(): Promise<void> {
     const text = input.value.trim();
     if (!text || busy) return;
+
+    hideSuggestedPrompts();
 
     if (delegateProductApi && !productApi?.baseUrl) {
       appendMessage(messages, {
@@ -237,7 +308,7 @@ function createWidget(config: WidgetConfig): WidgetInstance {
       api.streamMessage(text, {
         onStep: (step) => {
           if (thinkingEl) {
-            thinkingEl.textContent = step.think || "Working…";
+            setThinkingContent(thinkingEl, step.think || "Working");
           }
         },
         onDone: (result) => {

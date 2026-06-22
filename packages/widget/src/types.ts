@@ -58,6 +58,14 @@ export interface WidgetConfig {
   showProductApiSettings?: boolean;
   /** Called when user clicks a product card. */
   onProductClick?: (product: WidgetProduct) => void;
+  /** Subtitle under the header title (e.g. "Live demo"). */
+  headerSubtitle?: string;
+  /** Short label shown beside the launcher in promo mode. */
+  launcherHint?: string;
+  /** Clickable example queries shown after the greeting. */
+  suggestedPrompts?: string[];
+  /** Polished demo styling — pulse launcher, glow panel, prompt chips. */
+  promo?: boolean;
 }
 
 export interface WidgetProduct {

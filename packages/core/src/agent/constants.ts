@@ -21,6 +21,7 @@ export const REGEX_STOPWORDS = new Set([
   "at", "by", "its", "be", "can", "has", "have", "will", "would", "should",
   "item", "items", "both", "these", "offering", "sells", "shop", "budget",
   "voucher", "discount", "first", "second", "third", "please", "tip", "age",
+  "same", "from", "with",
   "must", "should", "would", "could", "may", "might", "shall", "being",
   "been", "was", "were", "are", "do", "does", "did", "done", "having",
   "had", "got", "make", "makes", "made", "take", "takes", "took", "taken",
@@ -72,5 +73,26 @@ export const MULTI_PRODUCT_SPLIT_RE =
   /(?:,?\s*and\s+also\s+|,?\s*also,?\s*|Second(?:ly)?,\s*|Third(?:ly)?,\s*|First,\s*|\(\d+\)\s*|\d+\.\s*|Additionally,\s*|Furthermore,\s*|Moreover,\s*|In\s+addition,?\s*|Plus,\s*|On\s+top\s+of\s+that,?\s*|[.]\s*Next,\s*|[.]\s*Lastly,\s*|[.]\s*Finally,\s*|[.]\s*Last,\s*|\bThen\s*,?\s*I\s+(?:need|want|also)\b|\bI\s+also\s+(?:want|need)\b)/i;
 
 export const BUDGET_SPLIT_RE = /(?:My budget|budget is|I have a voucher)/i;
+
+/** Split a user query into per-product segments for multi-item requests. */
+export function splitMultiProductQuery(query: string): string[] {
+  const productText = query.split(BUDGET_SPLIT_RE)[0]?.trim() ?? query;
+
+  const byMarkers = productText
+    .split(MULTI_PRODUCT_SPLIT_RE)
+    .map((p) => p.trim())
+    .filter((p) => p.length > 10);
+  if (byMarkers.length > 1) return byMarkers;
+
+  const byAnd = productText
+    .split(/\s+and\s+/i)
+    .map((p) => p.trim())
+    .filter((p) => p.length > 10);
+  if (byAnd.length > 1 && byAnd.every((p) => p.split(/\s+/).length >= 2)) {
+    return byAnd;
+  }
+
+  return [productText || query];
+}
 
 export const SHOP_SCORE_THRESHOLD = 6.0;

@@ -1,5 +1,6 @@
 import type { ParsedQueryParams, ProductSpec, TaskType } from "./query-parser.js";
-import { extractQueryParamsRegex } from "./query-parser.js";
+import { enrichProductSpecs, extractPriceRange, extractQueryParamsRegex } from "./query-parser.js";
+import { splitMultiProductQuery } from "./constants.js";
 
 export interface LlmConfig {
   /** OpenAI-compatible API base URL, e.g. https://api.openai.com/v1 */
@@ -31,7 +32,9 @@ Rules:
 - keywords: core product type + key attributes for Amazon search (not full sentence)
 - brand: only if user mentions a brand (Apple, Nike, Sony, etc.)
 - features: specs like waterproof, wireless, 256GB, running, ANC
-- price_range: USD; "under $50" -> "0-50", "over $100" -> "100-"
+- price_range: USD min-max without currency symbol. ALWAYS extract when user mentions price, budget, cost, or dollar amounts.
+  Examples: "under $50" -> "0-50", "$100-$200" -> "100-200", "over $100" -> "100-", "around $80" -> "0-80", "budget $500" -> "0-500"
+- If multiple products each have their own price, set price_range on each product entry separately
 - service: use "prime" for Prime-eligible, "freeShipping" for free delivery
 - Multiple products -> separate entries in products array
 - voucher/budget/discount queries -> task_type "voucher"`;
@@ -42,13 +45,16 @@ function stripJsonFence(text: string): string {
   return (fenced?.[1] ?? trimmed).trim();
 }
 
-function normalizeProduct(raw: Record<string, unknown>): ProductSpec {
+function normalizeProduct(raw: Record<string, unknown>, fallbackText?: string): ProductSpec {
   const keywords = String(raw.keywords ?? raw.product_name ?? "product").trim() || "product";
   const brand = raw.brand ? String(raw.brand).trim() : null;
   const features = Array.isArray(raw.features)
     ? raw.features.map((f) => String(f).trim()).filter(Boolean)
     : [];
-  const price_range = raw.price_range ? String(raw.price_range).trim() : null;
+  let price_range = raw.price_range ? String(raw.price_range).trim() : null;
+  if (!price_range && fallbackText) {
+    price_range = extractPriceRange(fallbackText);
+  }
   const service = raw.service ? String(raw.service).trim() : null;
 
   const parts = [keywords];
@@ -70,15 +76,21 @@ function normalizeParsed(raw: Record<string, unknown>, fallbackQuery: string): P
     ? raw.task_type
     : "product") as TaskType;
 
+  const segments = splitMultiProductQuery(fallbackQuery);
+
   let products: ProductSpec[] = [];
   if (Array.isArray(raw.products)) {
     products = raw.products
       .filter((p) => p && typeof p === "object")
-      .map((p) => normalizeProduct(p as Record<string, unknown>));
+      .map((p, i) =>
+        normalizeProduct(p as Record<string, unknown>, segments[i] ?? fallbackQuery),
+      );
   }
   if (!products.length) {
     return extractQueryParamsRegex(fallbackQuery);
   }
+
+  products = enrichProductSpecs(products, fallbackQuery);
 
   return {
     task_type,
