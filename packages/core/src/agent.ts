@@ -16,7 +16,7 @@ function randomId(): string {
  *
  * @example
  * ```ts
- * const agent = new CommerceAgent({ agentBackendUrl: 'http://localhost:8000' });
+ * const agent = new CommerceAgent({ agentBackendUrl: 'http://yakoo.xyz:8000' });
  * const session = agent.createSession();
  * const result = await agent.query(session.id, 'Find wireless earbuds under 2000 pesos');
  * console.log(result.productIds, result.products);

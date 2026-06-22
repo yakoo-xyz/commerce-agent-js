@@ -6,7 +6,7 @@ Run:
   uvicorn services.agent-bridge.main:app --reload --port 8000
 
 Then point the Node server at it:
-  AGENT_BACKEND_URL=http://localhost:8000 npm run dev -w express-server-example
+  AGENT_BACKEND_URL=http://yakoo.xyz npm run dev -w express-server-example
 """
 from __future__ import annotations
 

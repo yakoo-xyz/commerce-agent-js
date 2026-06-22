@@ -299,6 +299,108 @@ export function setThinkingContent(el: HTMLElement, text: string): void {
   el.append(label, dots);
 }
 
+export function createThinkingTimeline(container: HTMLElement): HTMLElement {
+  const wrap = document.createElement("div");
+  wrap.className = "ca-msg assistant ca-thinking-timeline";
+  container.appendChild(wrap);
+  container.scrollTop = container.scrollHeight;
+  return wrap;
+}
+
+export function pushThinkingStep(timeline: HTMLElement, text: string): void {
+  const previous = timeline.querySelector(".ca-thinking-step.active");
+  if (previous) {
+    previous.classList.remove("active");
+    previous.classList.add("done");
+    const icon = previous.querySelector(".ca-thinking-step-icon");
+    if (icon) icon.textContent = "✓";
+    const dots = previous.querySelector(".ca-thinking-dots");
+    dots?.remove();
+  }
+
+  const step = document.createElement("div");
+  step.className = "ca-thinking-step active";
+
+  const icon = document.createElement("span");
+  icon.className = "ca-thinking-step-icon";
+  icon.textContent = "◆";
+  icon.setAttribute("aria-hidden", "true");
+
+  const body = document.createElement("div");
+  body.className = "ca-thinking-step-body";
+  const label = document.createElement("span");
+  label.className = "ca-thinking-text";
+  label.textContent = text.replace(/\.+$/, "") || "Working";
+  const dots = document.createElement("span");
+  dots.className = "ca-thinking-dots";
+  dots.setAttribute("aria-hidden", "true");
+  body.append(label, dots);
+
+  step.append(icon, body);
+  timeline.appendChild(step);
+  const messagesEl = timeline.closest(".ca-messages");
+  if (messagesEl) {
+    messagesEl.scrollTop = messagesEl.scrollHeight;
+  }
+}
+
+export function finalizeThinkingTimeline(timeline: HTMLElement): void {
+  const active = timeline.querySelector(".ca-thinking-step.active");
+  if (active) {
+    active.classList.remove("active");
+    active.classList.add("done");
+    const icon = active.querySelector(".ca-thinking-step-icon");
+    if (icon) icon.textContent = "✓";
+    active.querySelector(".ca-thinking-dots")?.remove();
+  }
+}
+
+export function appendInstallHint(
+  container: HTMLElement,
+  hint: { title?: string; body?: string; command: string },
+): HTMLElement {
+  const el = document.createElement("div");
+  el.className = "ca-install-hint";
+
+  const title = document.createElement("div");
+  title.className = "ca-install-hint-title";
+  title.textContent = hint.title ?? "Best results on your marketplace";
+
+  const body = document.createElement("p");
+  body.className = "ca-install-hint-body";
+  body.textContent =
+    hint.body ??
+    "For production UX and the full agent pipeline, install the npm module on your backend instead of relying on this browser demo.";
+
+  const cmdWrap = document.createElement("div");
+  cmdWrap.className = "ca-install-hint-cmd";
+
+  const code = document.createElement("code");
+  code.textContent = hint.command;
+
+  const copyBtn = document.createElement("button");
+  copyBtn.type = "button";
+  copyBtn.className = "ca-install-hint-copy";
+  copyBtn.textContent = "Copy";
+  copyBtn.addEventListener("click", async () => {
+    try {
+      await navigator.clipboard.writeText(hint.command);
+      copyBtn.textContent = "Copied";
+      window.setTimeout(() => {
+        copyBtn.textContent = "Copy";
+      }, 1600);
+    } catch {
+      copyBtn.textContent = "Copy";
+    }
+  });
+
+  cmdWrap.append(code, copyBtn);
+  el.append(title, body, cmdWrap);
+  container.appendChild(el);
+  container.scrollTop = container.scrollHeight;
+  return el;
+}
+
 export function baseWidgetStyles(): string {
   return `
     .ca-widget-root {
@@ -467,7 +569,21 @@ export function baseWidgetStyles(): string {
       flex-shrink: 0;
     }
     .ca-header-main { flex: 1; min-width: 0; }
-    .ca-header-title { display: block; font-size: 15px; line-height: 1.3; }
+    .ca-header-title-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+    }
+    .ca-header-title {
+      flex: 1;
+      min-width: 0;
+      font-size: 15px;
+      line-height: 1.3;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
     .ca-header-subtitle {
       display: block;
       margin-top: 2px;
@@ -480,7 +596,7 @@ export function baseWidgetStyles(): string {
       display: inline-flex;
       align-items: center;
       gap: 6px;
-      margin-top: 6px;
+      flex-shrink: 0;
       padding: 3px 8px;
       border-radius: 999px;
       background: rgba(255,255,255,0.16);
@@ -548,6 +664,57 @@ export function baseWidgetStyles(): string {
       align-items: baseline;
       gap: 2px;
     }
+    .ca-thinking-timeline {
+      align-self: stretch;
+      max-width: 100%;
+      width: 100%;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      padding: 12px 14px;
+      background: var(--ca-surface, #f1f5f9);
+      border: 1px solid var(--ca-border, #e2e8f0);
+      border-radius: 12px;
+      border-bottom-left-radius: 4px;
+    }
+    .ca-thinking-step {
+      display: flex;
+      gap: 10px;
+      align-items: flex-start;
+      font-size: 13px;
+      line-height: 1.45;
+      color: var(--ca-text-muted, #64748b);
+      animation: ca-step-in 0.28s ease;
+    }
+    .ca-thinking-step.active {
+      color: var(--ca-text, #1e293b);
+    }
+    .ca-thinking-step.done {
+      opacity: 0.82;
+    }
+    .ca-thinking-step-icon {
+      flex-shrink: 0;
+      width: 16px;
+      margin-top: 1px;
+      font-size: 11px;
+      line-height: 1.4;
+      color: var(--ca-primary, #6366f1);
+      text-align: center;
+    }
+    .ca-thinking-step.done .ca-thinking-step-icon {
+      color: var(--ca-primary, #6366f1);
+    }
+    .ca-thinking-step-body {
+      display: inline-flex;
+      align-items: baseline;
+      gap: 2px;
+      flex: 1;
+      min-width: 0;
+    }
+    @keyframes ca-step-in {
+      from { opacity: 0; transform: translateY(6px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
     .ca-thinking-dots::after {
       content: "...";
       display: inline-block;
@@ -589,6 +756,63 @@ export function baseWidgetStyles(): string {
       text-transform: uppercase;
       color: var(--ca-text-muted, #64748b);
       margin-bottom: 8px;
+    }
+    .ca-install-hint {
+      align-self: stretch;
+      max-width: 100%;
+      margin-top: 4px;
+      padding: 12px 14px;
+      border-radius: 12px;
+      border: 1px dashed var(--ca-border, #e2e8f0);
+      background: var(--ca-surface-elevated, #fff);
+      text-align: left;
+    }
+    .ca-install-hint-title {
+      font-size: 12px;
+      font-weight: 700;
+      color: var(--ca-text, #1e293b);
+      margin-bottom: 6px;
+    }
+    .ca-install-hint-body {
+      margin: 0 0 10px;
+      font-size: 12px;
+      line-height: 1.5;
+      color: var(--ca-text-muted, #64748b);
+    }
+    .ca-install-hint-cmd {
+      display: flex;
+      align-items: flex-start;
+      gap: 8px;
+      padding: 10px 12px;
+      border-radius: 8px;
+      background: var(--ca-input-bg, #050806);
+      border: 1px solid var(--ca-input-border, rgba(255,255,255,.14));
+    }
+    .ca-install-hint-cmd code {
+      flex: 1;
+      min-width: 0;
+      font-family: ui-monospace, "Cascadia Code", "SF Mono", Menlo, monospace;
+      font-size: 11px;
+      line-height: 1.5;
+      color: var(--ca-text, #f0f4f1);
+      word-break: break-word;
+    }
+    .ca-install-hint-copy {
+      flex-shrink: 0;
+      border: 1px solid var(--ca-border, rgba(255,255,255,.14));
+      background: transparent;
+      color: var(--ca-text-muted, #64748b);
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      padding: 4px 8px;
+      border-radius: 6px;
+      cursor: pointer;
+    }
+    .ca-install-hint-copy:hover {
+      border-color: var(--ca-primary, #6366f1);
+      color: var(--ca-primary, #6366f1);
     }
     .ca-products { display: flex; flex-direction: column; gap: 10px; margin-top: 10px; }
     .ca-product-section { display: flex; flex-direction: column; gap: 8px; }

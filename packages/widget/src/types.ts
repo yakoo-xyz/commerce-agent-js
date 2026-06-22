@@ -40,7 +40,7 @@ export interface WidgetProductApiConfig {
 }
 
 export interface WidgetConfig {
-  /** Base URL of the agent API, e.g. 'http://localhost:3000/api/agent' */
+  /** Base URL of the agent API, e.g. 'http://yakoo.xyz/api/agent' */
   apiUrl: string;
   theme?: WidgetTheme;
   size?: WidgetSizeConfig;
@@ -66,6 +66,12 @@ export interface WidgetConfig {
   suggestedPrompts?: string[];
   /** Polished demo styling — pulse launcher, glow panel, prompt chips. */
   promo?: boolean;
+  /** Live demo callout recommending the install module (promo sites). */
+  installHint?: {
+    title?: string;
+    body?: string;
+    command: string;
+  };
 }
 
 export interface WidgetProduct {

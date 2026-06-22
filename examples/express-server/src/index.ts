@@ -106,8 +106,8 @@ app.get("/", (_req, res) => {
 });
 
 app.listen(PORT, () => {
-  console.log(`Commerce Agent demo running at http://localhost:${PORT}`);
-  console.log(`  API:    http://localhost:${PORT}/api/agent`);
-  console.log(`  Health: http://localhost:${PORT}/api/agent/health`);
+  console.log(`Commerce Agent demo running at http://yakoo.xyz${PORT}`);
+  console.log(`  API:    http://yakoo.xyz${PORT}/api/agent`);
+  console.log(`  Health: http://yakoo.xyz${PORT}/api/agent/health`);
   console.log(`  Agent:  ${modeLabel}`);
 });

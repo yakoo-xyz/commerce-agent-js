@@ -1,4 +1,12 @@
-import { WidgetApiClient, appendMessage, baseWidgetStyles, extractProductListsFromSteps, setThinkingContent } from "./api-client.js";
+import {
+  WidgetApiClient,
+  appendInstallHint,
+  appendMessage,
+  baseWidgetStyles,
+  createThinkingTimeline,
+  extractProductListsFromSteps,
+  pushThinkingStep,
+} from "./api-client.js";
 import { applyThemeToElement, resolveWidgetTheme, watchThemeChanges } from "./theme.js";
 import { setupPanelResize } from "./resize.js";
 import type {
@@ -90,21 +98,24 @@ function createWidget(config: WidgetConfig): WidgetInstance {
   header.className = "ca-header";
   const headerMain = document.createElement("div");
   headerMain.className = "ca-header-main";
+  const headerTitleRow = document.createElement("div");
+  headerTitleRow.className = "ca-header-title-row";
   const headerTitle = document.createElement("span");
   headerTitle.className = "ca-header-title";
   headerTitle.textContent = title;
-  headerMain.appendChild(headerTitle);
+  headerTitleRow.appendChild(headerTitle);
+  if (config.promo) {
+    const badge = document.createElement("span");
+    badge.className = "ca-header-badge";
+    badge.innerHTML = '<span class="ca-header-badge-dot" aria-hidden="true"></span> Live demo';
+    headerTitleRow.appendChild(badge);
+  }
+  headerMain.appendChild(headerTitleRow);
   if (config.headerSubtitle) {
     const headerSubtitle = document.createElement("span");
     headerSubtitle.className = "ca-header-subtitle";
     headerSubtitle.textContent = config.headerSubtitle;
     headerMain.appendChild(headerSubtitle);
-  }
-  if (config.promo) {
-    const badge = document.createElement("span");
-    badge.className = "ca-header-badge";
-    badge.innerHTML = '<span class="ca-header-badge-dot" aria-hidden="true"></span> Live demo';
-    headerMain.appendChild(badge);
   }
   header.appendChild(headerMain);
 
@@ -212,6 +223,10 @@ function createWidget(config: WidgetConfig): WidgetInstance {
       : greeting,
   });
 
+  if (config.installHint) {
+    appendInstallHint(messages, config.installHint);
+  }
+
   let promptsEl: HTMLElement | null = null;
   if (config.suggestedPrompts?.length) {
     promptsEl = document.createElement("div");
@@ -260,7 +275,26 @@ function createWidget(config: WidgetConfig): WidgetInstance {
 
   let open = false;
   let busy = false;
-  let thinkingEl: HTMLElement | null = null;
+  let thinkingTimeline: HTMLElement | null = null;
+
+  function clearThinkingTimeline(): void {
+    thinkingTimeline?.remove();
+    thinkingTimeline = null;
+  }
+
+  function startThinkingTimeline(initialStep: string): void {
+    clearThinkingTimeline();
+    thinkingTimeline = createThinkingTimeline(messages);
+    pushThinkingStep(thinkingTimeline, initialStep);
+  }
+
+  function addThinkingStep(text: string): void {
+    if (!thinkingTimeline) {
+      startThinkingTimeline(text);
+      return;
+    }
+    pushThinkingStep(thinkingTimeline, text);
+  }
 
   function setOpen(value: boolean): void {
     open = value;
@@ -296,24 +330,17 @@ function createWidget(config: WidgetConfig): WidgetInstance {
     input.value = "";
     appendMessage(messages, { role: "user", content: text });
 
-    thinkingEl = appendMessage(messages, {
-      role: "assistant",
-      content: "Searching and comparing products…",
-      thinking: true,
-    });
+    startThinkingTimeline("Understanding your request");
 
     const useStream = typeof EventSource !== "undefined";
 
     if (useStream) {
       api.streamMessage(text, {
         onStep: (step) => {
-          if (thinkingEl) {
-            setThinkingContent(thinkingEl, step.think || "Working");
-          }
+          addThinkingStep(step.think || "Working");
         },
         onDone: (result) => {
-          if (thinkingEl) thinkingEl.remove();
-          thinkingEl = null;
+          clearThinkingTimeline();
           const productLists = resolveProductLists({
             ...result,
             steps: result.steps as Parameters<typeof extractProductListsFromSteps>[0],
@@ -342,8 +369,7 @@ function createWidget(config: WidgetConfig): WidgetInstance {
   async function fallbackFetch(text: string): Promise<void> {
     try {
       const result = await api.sendMessage(text);
-      if (thinkingEl) thinkingEl.remove();
-      thinkingEl = null;
+      clearThinkingTimeline();
       const productLists = resolveProductLists(result);
       const lastThink = result.steps.at(-1)?.think ?? "Here are my recommendations.";
       appendMessage(
@@ -352,8 +378,7 @@ function createWidget(config: WidgetConfig): WidgetInstance {
         config.onProductClick,
       );
     } catch (err) {
-      if (thinkingEl) thinkingEl.remove();
-      thinkingEl = null;
+      clearThinkingTimeline();
       const msg = err instanceof Error ? err.message : "Something went wrong.";
       appendMessage(messages, { role: "assistant", content: `Sorry — ${msg}` });
     } finally {

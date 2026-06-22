@@ -21,7 +21,7 @@ npm run build
 npm run dev
 ```
 
-Open **http://localhost:3000** — click the cart button to chat with the built-in agent.
+Open **http://yakoo.xyz** — click the cart button to chat with the built-in agent.
 
 ## Connect your marketplace catalog
 
@@ -47,7 +47,7 @@ pip install -r services/amazon-search/requirements.txt
 uvicorn services.amazon-search.main:app --reload --port 8100
 
 # Terminal 2 — agent with LLM + demo catalog
-set PRODUCT_API_URL=http://localhost:8100
+set PRODUCT_API_URL=http://yakoo.xyz:8100
 set LLM_API_KEY=sk-your-openai-key
 npm run dev
 ```
@@ -64,7 +64,7 @@ pip install -r services/agent-bridge/requirements.txt
 cd services/agent-bridge && uvicorn main:app --reload --port 8000
 
 # Terminal 2 — Node demo with external agent
-set AGENT_BACKEND_URL=http://localhost:8000
+set AGENT_BACKEND_URL=http://yakoo.xyz:8000
 npm run dev
 ```
 
@@ -97,7 +97,7 @@ app.listen(3000);
 import { CommerceAgent } from "@commerce-agent/core";
 
 const agent = new CommerceAgent({
-  agentBackendUrl: "http://localhost:8000",
+  agentBackendUrl: "http://yakoo.xyz:8000",
 });
 
 const session = agent.createSession();
@@ -111,11 +111,13 @@ console.log(result.productIds, result.products, result.steps);
 
 ### Website widget
 
+Host the built bundle on your domain, or load it from Yakoo:
+
 ```html
-<script src="https://your-cdn.com/commerce-agent-widget.js"></script>
+<script src="https://yakoo.xyz/widget/commerce-agent-widget.js"></script>
 <script>
   CommerceAgentWidget.init({
-    apiUrl: "https://your-api.com/api/agent",
+    apiUrl: "https://yakoo.xyz/api/agent",
     theme: { primaryColor: "#6366f1", position: "bottom-right" },
     greeting: "Hi! What product can I help you find?",
     onProductClick: (product) => {
@@ -154,7 +156,7 @@ commerce-agent-js/
 
 | Variable | Description |
 |----------|-------------|
-| `AGENT_BACKEND_URL` | Python agent bridge URL (e.g. `http://localhost:8000`) |
+| `AGENT_BACKEND_URL` | Python agent bridge URL (e.g. `http://yakoo.xyz:8000`) |
 | `AGENT_API_KEY` | Optional bearer token for the backend |
 | `PRODUCT_API_URL` | Product catalog API base URL (server-side search) |
 | `PRODUCT_API_KEY` | Optional bearer token for the product catalog API |
